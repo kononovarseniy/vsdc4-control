@@ -22,6 +22,11 @@ int read(int32_t handle, uint32_t address, uint32_t *data) {
 	return 1;
 }
 
+#define DEVICE_ID 0x01FFFFC0
+#define REF_H 0x01FFFFCC
+#define REF_L 0x01FFFFD0
+#define TIME_QUANT 0x01FFFFD4
+
 int main(int argc, char **argv) {
 	short device, link;
 	int32_t handle;
@@ -40,15 +45,21 @@ int main(int argc, char **argv) {
 
 	printf("Connected!!!\n");
 
-	uint32_t base = 0x44000000; // 0x44
-	uint32_t offset = 0x01FFFFC0; // DEVICE_ID
+	uint32_t base = 0xc0000000; // 0x44
 
 	uint32_t data;
+	float quant;
 
 	
-	if (read(handle, base + offset, &data) == 0) {
-		printf("Value: %08X\n", data);
-	}
+	if (read(handle, base + DEVICE_ID, &data) == 0)
+		printf("DEV_ID: %08X\n", data);
+	if (read(handle, base + REF_H, &data) == 0)
+		printf("REF_H: %08X\n", data);
+	if (read(handle, base + REF_L, &data) == 0)
+		printf("REF_L: %08X\n", data);
+	if (read(handle, base + TIME_QUANT, (uint32_t *)&quant) == 0)
+		printf("TIME_QUANT: %f\n", quant);
+	
 
 	CAENVME_End(handle);
 	return 0;
