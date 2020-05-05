@@ -37,6 +37,26 @@
 #define INT_BUFF_WRITE_POS 0x00FFFFFC
 
 
+#define ADC_START_SRC_PROG 0x0
+#define ADC_START_SRC_A 0x1
+#define ADC_START_SRC_B 0x2
+#define ADC_START_SRC_C 0x3
+#define ADC_START_SRC_D 0x4
+#define ADC_START_SRC_BP 0x5
+
+#define ADC_STOP_SRC_TIMER (0x0<<3)
+#define ADC_STOP_SRC_PROG (0x1<<3)
+#define ADC_STOP_SRC_A (0x2<<3)
+#define ADC_STOP_SRC_B (0x3<<3)
+#define ADC_STOP_SRC_C (0x4<<3)
+#define ADC_STOP_SRC_D (0x5<<3)
+#define ADC_STOP_SRC_BP (0x6<<3)
+
+#define ADC_INPUT_SIGNAL (0x0<<6)
+#define ADC_INPUT_GND (0x1<<6)
+#define ADC_INPUT_REF_H (0x2<<6)
+#define ADC_INPUT_REF_L (0x3<<6)
+
 #define ADC0_CSR 0x00FFFF80
 #define ADC0_SR 0x00FFFF84
 #define ADC0_TIMER 0x00FFFF88

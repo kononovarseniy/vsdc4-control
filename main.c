@@ -34,8 +34,12 @@ void printError(const char *msg, CVErrorCodes err) {
 	}
 }
 
-CVErrorCodes read(int32_t handle, uint32_t address, uint32_t *data) {
+CVErrorCodes read_reg(int32_t handle, uint32_t address, uint32_t *data) {
 	return CAENVME_ReadCycle(handle, address, data, addr_mod, data_width);
+}
+
+CVErrorCodes write_reg(int32_t handle, uint32_t address, uint32_t data) {
+	return CAENVME_WriteCycle(handle, address, &data, addr_mod, data_width);
 }
 	
 
@@ -53,12 +57,114 @@ void print_device_info(struct device_info *info) {
 
 CVErrorCodes get_device_info(int32_t handle, uint32_t base, struct device_info *info) {
 	uint32_t device_id;
-	CVErrorCodes cverr = read(handle, base + DEV_ID, &device_id);
+	CVErrorCodes cverr = read_reg(handle, base + DEV_ID, &device_id);
 	if (cverr)
 		return cverr;
 	info->swid = device_id & 0xff;
 	info->hwid = (device_id >> 8) & 0xff;
 	info->devid = device_id >> 16;
+	return cvSuccess;
+}
+
+int measure(int32_t handle, uint32_t base, float time, float *res) {
+	uint32_t settings = ADC_START_SRC_PROG | ADC_STOP_SRC_TIMER | ADC_INPUT_REF_L;
+	CVErrorCodes cverr = write_reg(handle, base + ADC0_SR, settings);
+	if (cverr) {
+		printError("Writing ADC0_SR", cverr);
+		return cverr;
+	}
+	float quant;
+	cverr = read_reg(handle, base + TIME_QUANT, (uint32_t *)&quant);
+	if (cverr) {
+		printError("Reading TIME_QUANT", cverr);
+		return cverr;
+	}
+	cverr = write_reg(handle, base + ADC0_TIMER, (uint32_t)(time / quant));
+	if (cverr) {
+		printError("Writing ADC0_TIMER", cverr);
+		return cverr;
+	}
+	cverr = write_reg(handle, base + ADC0_WRITE, 0);
+	if (cverr) {
+		printError("Writing ADC0_WRITE", cverr);
+		return cverr;
+	}
+	cverr = write_reg(handle, base + INT_BUFF_WRITE_POS, 0);
+	if (cverr) {
+		printError("Writing INT_BUFF_WRITE_POS", cverr);
+		return cverr;
+	}
+	// START
+	cverr = write_reg(handle, base + ADC0_CSR, 0x1301);
+	if (cverr) {
+		printError("Writing ADC0_CSR", cverr);
+		return cverr;
+	}
+	//WAIT
+	uint32_t status = 0;
+	while (!(status & 2)) {
+		cverr = read_reg(handle, base + ADC0_CSR, &status);
+		if (cverr) {
+			printError("Reading ADC0_CSR", cverr);
+			return cverr;
+		}
+	}
+	
+	uint32_t addr2;
+	cverr = read_reg(handle, base + INT_BUFF_WRITE_POS, &addr2);
+	if (cverr) {
+		printError("Reading INT_BUFF_WRITE_POS", cverr);
+		//return cverr;
+	}
+	printf("int_buff_write_pos: %08X\n", addr2);
+
+	printf("status: %08X\n", status);
+	if (status & (1 << 5))
+		printf("GAIN_ERR\n");
+	if (status & (1 << 6))
+		printf("OVRNG\n");
+	if (status & (1 << 7))
+		printf("MEM_OVF\n");
+	if (status & (1 << 8))
+		printf("MISS_INT\n");
+	if (status & (1 << 9))
+		printf("MISS_START\n");
+	int ready = status & (1 << 12);
+	if (ready)
+		printf("INTEGRAL_READY\n");
+	//else
+		//return 1;
+	//READ
+	cverr = read_reg(handle, base + ADC0_INT, (uint32_t*) res);
+	if (cverr) {
+		printError("Reading ADC0_INT", cverr);
+		return cverr;
+	}
+	uint32_t samples;
+	cverr = read_reg(handle, base + ADC0_WRITE, &samples);
+	if (cverr) {
+		printError("Reading ADC0_WRITE", cverr);
+		return cverr;
+	}
+	printf("samples: %d (%d)\n", samples, samples - 128);
+	FILE *f = fopen("wave.csv", "w");
+	int i = 0;
+	for (i = 0; i < samples; i++) {
+		float val;
+		cverr = read_reg(handle, base + i * 4, (uint32_t *)&val);
+		if (cverr) {
+			printError("Reading WAVEFORM", cverr);
+			return cverr;
+		}
+		fprintf(f, "%f\n", val);
+	}
+	fclose(f);
+	// Reset settings
+	cverr = write_reg(handle, base + ADC0_SR, 0);
+	if (cverr) {
+		printError("Writing ADC0_SR", cverr);
+		return cverr;
+	}
 	return cvSuccess;
 }
 
@@ -93,9 +199,36 @@ int main(int argc, char **argv) {
 	print_device_info(&info);
 
 	float quant;
-	if (read(handle, base + TIME_QUANT, (uint32_t *)&quant) == 0)
+	if (read_reg(handle, base + TIME_QUANT, (uint32_t *)&quant) == 0)
 		printf("TIME_QUANT: %.9f\n", quant);
+
+	/*printf("Start calibration...\n");
+	cverr = write_reg(handle, base + ADC0_CSR, 1 << 2);
+	if (cverr) {
+		printError("Write ADC0_CSR", cverr);
+		return 1;
+	}
 	
+	uint32_t status = 0;
+	while (!(status & 2)) {
+		cverr = read_reg(handle, base + ADC0_CSR, &status);
+		if (cverr) {
+			printError("Read ADC0_CSR", cverr);	
+		}
+	}
+	printf("Calibrated\n");*/
+
+	//printError("RESET", write_reg(handle, base + GCR, 1 << 3));
+	//return 1;
+
+	float res;
+	float time = 0.000320;
+	if (measure(handle, base, time, &res)) {
+		printf("Measurement failed\n");
+		return 1;
+	}
+	printf("Measured value: %.4e (expected %.4e)\n", res, time * 0.2);
+
 
 	CAENVME_End(handle);
 	return 0;
