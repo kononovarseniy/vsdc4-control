@@ -1,5 +1,5 @@
 EXE	= test
-CC	= gcc
+CC	= g++
 COPTS	= -fPIC -DLINUX -Wall
 FLAGS	= -Wall
 LIBS	= -l CAENVME -lc -lm
