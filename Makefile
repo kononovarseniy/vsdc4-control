@@ -3,7 +3,7 @@ CC	= g++
 COPTS	= -fPIC -DLINUX -Wall
 FLAGS	= -Wall
 LIBS	= -l CAENVME -lc -lm
-OBJS	= main.o
+OBJS	= main.o vsdc4.o
 
 #########################################################################
 

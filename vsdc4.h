@@ -1,6 +1,8 @@
 #ifndef VSDC4_H_INCLUDED
 #define VSDC4_H_INCLUDED
 
+#include <stdint.h>
+
 #define DEV_ID 0x01FFFFC0
 #define GCR 0x01FFFFC4
 #define GSR 0x01FFFFC8
@@ -8,7 +10,6 @@
 #define REF_L 0x01FFFFD0
 #define TIME_QUANT 0x01FFFFD4
 #define INT_LINE 0x01FFFFD8
-#define Reserve 0x01FFFFDC
 #define AUZ_GNDMX_DLY 0x01FFFFE0
 #define AUZ_PAUSE_NUM 0x01FFFFE4
 #define AUZ_SW_NUM 0x01FFFFE8
@@ -93,5 +94,9 @@
 #define CH3 0x01FFFF00
 
 #define INTEGRAL_BUF 0x01000000
+
+uint32_t getChannelRegistersOffset(int ch);
+uint32_t getChannelWaveformOffset(int ch);
+
 
 #endif
