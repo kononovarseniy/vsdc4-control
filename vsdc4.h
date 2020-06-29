@@ -36,7 +36,7 @@
 #define INT_BUFF_READ_POS 0x00FFFFF8
 #define INT_BUFF_WRITE_POS 0x00FFFFFC
 
-
+// Constants for ADCx_SR
 #define ADC_START_SRC_PROG 0x0
 #define ADC_START_SRC_A 0x1
 #define ADC_START_SRC_B 0x2
@@ -57,6 +57,9 @@
 #define ADC_INPUT_REF_H (0x2<<6)
 #define ADC_INPUT_REF_L (0x3<<6)
 
+#define ADC_IRQ_ENABLED (1 << 11)
+
+// Constants for ADCx_CSR
 #define ADC_CSR_PSTART (1 << 0)
 #define ADC_CSR_PSTOP (1 << 1)
 #define ADC_CSR_CALIB (1 << 2)

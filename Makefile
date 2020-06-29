@@ -2,7 +2,7 @@ EXE	= test
 CC	= g++
 COPTS	= -fPIC -DLINUX -Wall
 FLAGS	= -Wall
-LIBS	= -l CAENVME -lc -lm
+LIBS	= -l CAENVME -lc -lm -lpthread
 OBJS	= main.o vsdc4.o
 
 #########################################################################
