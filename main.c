@@ -1,11 +1,16 @@
 #include <stdio.h>
 #include <CAENVMElib.h>
 #include <unistd.h>
+#include <errno.h>
+#include <pthread.h>
 
 #include "vsdc4.h"
+#include "device_access.h"
 
 const CVAddressModifier addr_mod = cvA32_U_DATA; // A32 non-privileged data access
 const CVDataWidth data_width = cvD32;
+
+const uint32_t base = 0x40000000; // VsDC3 - 0xc0 VsDC4 - 0x40
 
 
 // Print CAEN VME error
@@ -139,7 +144,10 @@ CVErrorCodes wait_for_measurement_irq(int32_t handle, uint32_t base, uint32_t ch
     CVErrorCodes cverr;
     
     CAENVME_IRQEnable(handle, cvIRQ5);
+    //CAENVME_IRQDisable(handle, cvIRQ5);
+    //puts("1");
     cverr = CAENVME_IRQWait(handle, cvIRQ5, 1000);
+    //puts("2");
     if (cverr == cvTimeoutError) {
         printf("IRQ timeout\n");
         return cverr;
@@ -356,7 +364,193 @@ int full_vsdc_reset(int32_t handle, uint32_t base) {
     return 1;
 }
 
+volatile int stop = 0;
+
+void *trigger_thread(void *arg) {
+    device *dev = (device *)arg;
+    CVErrorCodes cverr;
+    
+    int32_t handle;
+    cv_lock(dev, &handle);
+    
+    for (int ch = 0; ch < 4; ch++) {
+        cverr = init_single_measurement(handle, base, ch, 0.001);
+        if (cverr) {
+            printError("TRIGGER: Failed to initialize measurement", cverr);
+            return NULL;
+        }
+    }
+    
+    cv_unlock(dev);
+    
+    cv_lock(dev, &handle);
+    cverr = start_measurement(handle, base, 3);
+    if (cverr) {
+        printError("TRIGGER: Failed to trigger measurement", cverr);
+            return NULL;
+    }
+    cv_unlock(dev);
+    printf("TRIGGER: started ch3\n");
+    
+    
+    cv_lock(dev, &handle);
+    cverr = start_measurement(handle, base, 2);
+    if (cverr) {
+        printError("TRIGGER: Failed to trigger measurement", cverr);
+            return NULL;
+    }
+    cv_unlock(dev);
+    printf("TRIGGER: started ch2\n");
+    
+    usleep(500*1000); // slep 0.5s
+    
+    cv_lock(dev, &handle);
+    cverr = start_measurement(handle, base, 1);
+    if (cverr) {
+        printError("TRIGGER: Failed to trigger measurement", cverr);
+            return NULL;
+    }
+    cv_unlock(dev);
+    printf("TRIGGER: started ch1\n");
+    
+    usleep(2000*1000); // slep 2s
+    
+    cv_lock(dev, &handle);
+    cverr = start_measurement(handle, base, 0);
+    if (cverr) {
+        printError("TRIGGER: Failed to trigger measurement", cverr);
+            return NULL;
+    }
+    cv_unlock(dev);
+    printf("TRIGGER: started ch0\n");
+    
+    return NULL;
+}
+
+void *waiter_thread(void *arg) {
+    device *dev = (device *)arg;
+    
+    int err;
+    CVErrorCodes cverr;
+    uint8_t ready_mask = 0x00;
+    while (ready_mask != 0x0F) {
+        usleep(50 * 1000);
+        uint8_t vec;
+        err = cv_get_irq_vector(dev, &vec);
+        if (err) {
+            cv_perror("WAITER: get irq failed", cverr);
+            continue;
+        }
+        if (vec) {
+            printf("WAITER: irq received 0x%02X\n", vec);
+            if (vec > 4) {
+                fprintf(stderr, "WAITER: WRONG_VECTOR\n");
+                continue;
+            }
+            
+            // Handle interrupt
+            int ch = vec - 1;
+            ready_mask |= 1 << ch;
+            int32_t handle;
+            cv_lock(dev, &handle);
+            
+            int success;
+            cverr = read_status(handle, base, ch, &success);
+            if (cverr) {
+                printError("WAITER: Failed to read channel status", cverr);
+                continue;
+            }
+            cverr = clear_status(handle, base, ch);
+            if (cverr) {
+                printError("WAITER: Failed to clear status bits", cverr);
+                continue;
+            }
+            // Return if no integral
+            if (!success) {
+                printf("WAITER: Integral is not ready\n");
+                continue;
+            }
+            
+            float int_res;
+            cverr = read_integral(handle, base, ch, &int_res);
+            if (cverr) {
+                printError("WAITER: Failed to read integral", cverr);
+                continue;
+            }
+            printf("WAITER: ch%d: %.4e\n\n", ch, int_res);
+            cv_unlock(dev);
+        }
+    }
+    
+    // STOP other threads
+    stop = 1;
+        
+    return NULL;
+}
+
+void *reader_thread(void *arg) {
+    device *dev = (device *)arg;
+    
+    while (!stop) {
+        //usleep(1000);
+        uint32_t val;
+        int err = cv_read(dev, base + INT_LINE, &val);
+        if (err) {
+            cv_perror("READER: read INT_LINE", err);
+            continue;
+        }
+        if (val != 5) {
+            fprintf(stderr, "READER: WRONG VALUE\n");
+        }
+    }
+    return NULL;
+}
+
+int multithread_test() {
+    device *dev;
+    int err = cv_init(&dev, 0, 0, cvIRQ5);
+    if (dev == NULL) {
+        if (errno == 0)
+            fprintf(stderr, "CAEN VME error while initialising device\n");
+        else
+            perror("cv_init");
+        return 1;
+    }
+    
+    // Set interrupt vectors
+    for (int ch = 0; ch < 4; ch++) {
+        uint32_t ch_base = base + getChannelRegistersOffset(ch);
+        uint32_t vec = ch + 1;
+        cv_write(dev, ch_base + ADC_IRQ_VEC, vec);
+        printf("ADC%d_IRQ_VEC: 0x%02X\n", ch, vec);
+    }
+    
+    // Read REF_H voltage
+    float voltage;
+    err = cv_read(dev, base + REF_H, (uint32_t *)&voltage);
+    if (err) {
+        cv_perror("Reading REF_H", err);
+        return 1;
+    }
+    printf("REF_H: %f volts\n", voltage);
+    
+    pthread_t trigger, waiter, reader;
+    
+    pthread_create(&trigger, NULL, trigger_thread, dev);
+    pthread_create(&waiter, NULL, waiter_thread, dev);
+    pthread_create(&reader, NULL, reader_thread, dev);
+    
+    pthread_join(trigger, NULL);
+    pthread_join(waiter, NULL);
+    pthread_join(reader, NULL);
+    
+    cv_end(dev);
+    return 0;
+}
+
 int main(int argc, char **argv) {
+    return multithread_test();
+
     int32_t handle;
     short device, link;
     uint32_t base = 0x40000000; // VsDC3 - 0xc0 VsDC4 - 0x40

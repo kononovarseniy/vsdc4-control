@@ -3,7 +3,7 @@ CC	= g++
 COPTS	= -fPIC -DLINUX -Wall
 FLAGS	= -Wall
 LIBS	= -l CAENVME -lc -lm -lpthread
-OBJS	= main.o vsdc4.o
+OBJS	= main.o vsdc4.o device_access.o
 
 #########################################################################
 
